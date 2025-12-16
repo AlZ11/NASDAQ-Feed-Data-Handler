@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <map>
 #include <unordered_map>
+#include <chrono>
+#include <string>
 
 #include "ITCHv50.h"
 #include <iostream>
@@ -72,3 +74,25 @@ inline bool readMessageBody(
 		}
 		return true;
 }
+
+struct BlockTimer {
+    string name;
+    chrono::high_resolution_clock::time_point start_time;
+
+    BlockTimer(const string& processName) : name(processName) {
+        start_time = chrono::high_resolution_clock::now();
+    }
+
+    void stop() {
+        auto end_time = chrono::high_resolution_clock::now();
+        auto duration = chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+        
+        cout << "[" << name << "] took: " 
+                  << duration.count() << " microseconds (" 
+                  << duration.count() / 1000.0 << " ms)" << endl;
+    }
+    
+    void reset() {
+        start_time = chrono::high_resolution_clock::now();
+    }
+};
