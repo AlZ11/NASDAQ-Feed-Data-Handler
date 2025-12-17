@@ -20,7 +20,6 @@ void executeOrder(
 
 void checkMsg(int messageLength, size_t expectedSize);
 
-// Template function - must remain in header
 template <typename T>
 inline bool readMessageBody(
 	std::ifstream& file,

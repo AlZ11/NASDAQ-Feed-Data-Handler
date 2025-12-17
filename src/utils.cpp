@@ -9,7 +9,7 @@ void executeOrder(std::unordered_map<uint64_t, Order>& orderMap,
                   uint32_t sharesExecuted) {
     auto it = orderMap.find(refNum);
     if (it == orderMap.end()) {
-        std::cerr << "Order reference number not found" << std::endl;
+        // std::cerr << "Order reference number not found" << std::endl;
         return;
     }
 

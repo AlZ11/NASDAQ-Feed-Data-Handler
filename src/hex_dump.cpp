@@ -6,7 +6,6 @@
 #include <cstdlib>
 #include <stdlib.h>
 #include <map>
-
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -19,7 +18,16 @@
 
 using namespace std;
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        cerr << "Usage: " << argv[0] << " <TICKER>" << endl;
+        return 1;
+    }
+    string targetSymbol = argv[1];
+    targetSymbol.resize(8, ' ');
+    const char* target = targetSymbol.c_str();
+    cout << "Listening for symbol: [" << targetSymbol << "]" << std::endl;
+
     const char* filename = "../build/itch50_data.bin";
 
     int fd = open(filename, O_RDONLY);
@@ -53,7 +61,8 @@ int main() {
 
     uint16_t messageLength;
 
-    BlockTimer timer("Many System Calls (1 Byte Read)");
+    // BlockTimer timer("Many System Calls (1 Byte Read)");
+    auto start = std::chrono::high_resolution_clock::now();
 
     while (cursor < end) {
         if (end - cursor < 2) break; 
@@ -64,12 +73,12 @@ int main() {
         char* messageStart = cursor + 2; 
 
         if (messageStart + messageLength > end) {
-            cerr << "Error: Incomplete message at end of file" << endl;
+            // cerr << "Error: Incomplete message at end of file" << endl;
             break;
         }
         
         char messageType = *messageStart;
-
+        counter++;
         switch (messageType) {
             case 'S': { // System event message
                 SystemEventMessage* msg = reinterpret_cast<SystemEventMessage*>(messageStart);
@@ -77,9 +86,6 @@ int main() {
                 // Endianness swap
                 uint16_t fixedLocate = __builtin_bswap16(msg->stockLocate);
                 uint16_t fixedTrack  = __builtin_bswap16(msg->trackingNumber);
-
-                cout << "[S] System Event | Code: " << msg->eventCode 
-                     << " | Locate: " << fixedLocate << endl;
                 break;
             }
             case 'A': { // Add order message
@@ -96,35 +102,33 @@ int main() {
                 
                 // Clean print of Stock Symbol (8 chars, not null-terminated)
                 string symbol(msg->stock, 8); 
-                if (symbol == "AAPL    ") {
+                if (strncmp(msg->stock, target, 8) == 0) {
                     msg->indicator == 'B' ? bids[fixedPrice] += fixedShares : asks[fixedPrice] += fixedShares;
                     Order o = {fixedPrice, fixedShares, msg->indicator};
                     orderMap[fixedRef] = o;
                 }
-                counter++;
-                if (!(counter % 1000)) {
-                    cout << "--- BOOK SNAPSHOT (AAPL) ---" << endl;
-                    cout << "ASKS:" << endl;
-                    int num = 0;
-                    for (const auto& pair : asks) {
-                        if (num == 5) {
-                            break;
-                        }
-                        cout << "   $" << pair.first / 10000.0 << " : " << pair.second << " shares" << endl;
-                        num++;
-                    }
-                    cout << "----------------------------" << endl;
-                    cout << "BIDS:" << endl;
-                    num = 0;
-                    for (const auto& pair : bids) {
-                        if (num == 5) {
-                            break;
-                        }
-                        cout << "   $" << pair.first / 10000.0 << " : " << pair.second << " shares" << endl;
-                        num++;
-                    }
-                }
-                // cout << "[A] Add Order    | Stock: " << symbol << " | Side: " << msg.indicator << " | Shares: " << fixedShares << " | Price: " << fixedPrice << " ($" << fixedPrice << ")" << endl;
+                // if (!(counter % 1000)) {
+                //     cout << "--- BOOK SNAPSHOT (" << targetSymbol << ") ---" << endl;
+                //     cout << "ASKS:" << endl;
+                //     int num = 0;
+                //     for (const auto& pair : asks) {
+                //         if (num == 5) {
+                //             break;
+                //         }
+                //         cout << "   $" << pair.first / 10000.0 << " : " << pair.second << " shares" << endl;
+                //         num++;
+                //     }
+                //     cout << "----------------------------" << endl;
+                //     cout << "BIDS:" << endl;
+                //     num = 0;
+                //     for (const auto& pair : bids) {
+                //         if (num == 5) {
+                //             break;
+                //         }
+                //         cout << "   $" << pair.first / 10000.0 << " : " << pair.second << " shares" << endl;
+                //         num++;
+                //     }
+                // }
                 break;
             }
             case 'X' : { // Order cancelled message
@@ -146,7 +150,7 @@ int main() {
                     orderMap[fixedRef].shares -= fixedShares;
                     if (orderMap[fixedRef].shares <= 0) orderMap.erase(fixedRef);
                 } else {
-                    cerr << "Order reference number not found" << endl;
+                    // cerr << "Order reference number not found" << endl;
                 }
                 break;
             }
@@ -173,7 +177,7 @@ int main() {
                 // Remove the order from the map after deletion
                 orderMap.erase(fixedRef);
             } else {
-                cerr << "Order reference number not found" << endl;
+                // cerr << "Order reference number not found" << endl;
             }
                 break;
 
@@ -210,9 +214,22 @@ int main() {
         }
         cursor += 2 + messageLength;
     }
-    timer.stop();
+    auto finish = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = finish - start;
+    double seconds = diff.count();
+    
+    // 'counter' is your total messages processed
+    // Note: You need to increment 'counter' for EVERY message, not just 'A'
+    double msgsPerSec = counter / seconds;
+
+    std::cout << "------------------------------------------------" << std::endl;
+    std::cout << "Time: " << seconds << " seconds" << std::endl;
+    std::cout << "Total Messages: " << counter << std::endl;
+    std::cout << "Throughput: " << (long)msgsPerSec << " msgs/sec" << std::endl;
+    std::cout << "------------------------------------------------" << std::endl;
+    // timer.stop();
     if (munmap(mappedData, fileSize) == -1) {
-        cerr << "Error: munmap failed" << endl;
+        // cerr << "Error: munmap failed" << endl;
     }
     close(fd);
     return 0;
