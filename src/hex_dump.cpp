@@ -6,6 +6,13 @@
 #include <cstdlib>
 #include <stdlib.h>
 #include <map>
+
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h> 
+#include <cstdio> 
+
 #include "ITCHv50.h"
 #include "utils.h"
 
@@ -13,37 +20,42 @@
 using namespace std;
 
 int main() {
-    string filename = "../build/itch50_data.bin";
-    ifstream file(filename, ios::binary);
+    const char* filename = "../build/itch50_data.bin";
 
-    file.seekg(0, ios::end);
-    streamsize size = file.tellg();
-    file.seekg(0, ios::beg);
-
-    // Allocate memory
-    cout << "Size: " << size << " bytes (" << (size / 1024.0 / 1024.0) << " MB)" << endl;
-    vector<char> buffer(size);
-
-    if (!file.read(buffer.data(), size)) {
-        cerr << "Error reading file" << std::endl;
+    int fd = open(filename, O_RDONLY);
+    if (fd == -1) {
+        cerr << "Error: Could not open file" << endl;
+    }
+    struct stat sb;
+    if (fstat(fd, &sb) == -1) {
+        cerr << "Error: Could not get file size" << endl;
+        close(fd);
         return 1;
     }
 
-    file.close();
+    size_t fileSize = sb.st_size;
+
+    char* mappedData = static_cast<char*>(mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0));
+
+    if (mappedData == MAP_FAILED) {
+        cerr << "Error: mmap failed" << endl;
+        close(fd);
+        return 1;
+    }
 
     map<uint32_t, uint64_t> asks; 
     map<uint32_t, uint64_t, greater<uint32_t>> bids;
     unordered_map<uint64_t, Order> orderMap;
     int counter = 0;
 
-    char* cursor = buffer.data();
-    char* end = cursor + size;
+    char* cursor = mappedData;
+    char* end = mappedData + fileSize;
 
     uint16_t messageLength;
 
     BlockTimer timer("Many System Calls (1 Byte Read)");
 
-    while (cursor < end - 9 * size / 10) {
+    while (cursor < end) {
         if (end - cursor < 2) break; 
         
         uint16_t messageLength = *reinterpret_cast<uint16_t*>(cursor);
@@ -199,5 +211,9 @@ int main() {
         cursor += 2 + messageLength;
     }
     timer.stop();
+    if (munmap(mappedData, fileSize) == -1) {
+        cerr << "Error: munmap failed" << endl;
+    }
+    close(fd);
     return 0;
 }
