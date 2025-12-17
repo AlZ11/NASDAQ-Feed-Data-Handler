@@ -5,55 +5,25 @@
 #include <unordered_map>
 #include <chrono>
 #include <string>
+#include <fstream>
+#include <iostream>
 
 #include "ITCHv50.h"
-#include <iostream>
-using namespace std;
 
-// Apply an execution to an order: reduce order shares, adjust book levels, drop empty entries.
-inline void executeOrder(
-	unordered_map<uint64_t, Order>& orderMap, 
-	map<uint32_t, uint64_t, greater<uint32_t>>& bids, 
-	map<uint32_t, uint64_t>& asks,
+// Forward declarations for function declarations
+void executeOrder(
+	std::unordered_map<uint64_t, Order>& orderMap, 
+	std::map<uint32_t, uint64_t, std::greater<uint32_t>>& bids, 
+	std::map<uint32_t, uint64_t>& asks,
 	uint64_t refNum,
-	uint32_t sharesExecuted) 
-	{
-	auto it = orderMap.find(refNum);
-	if (it == orderMap.end()) {
-		cerr << "Order reference number not found" << endl;
-		return;
-	}
+	uint32_t sharesExecuted);
 
-	Order& o = it->second;
+void checkMsg(int messageLength, size_t expectedSize);
 
-		if (o.side == 'B') {
-			bids[o.price] -= sharesExecuted;
-			if (bids[o.price] <= 0) {
-				bids.erase(o.price);
-			}
-		} else {
-			asks[o.price] -= sharesExecuted;
-			if (asks[o.price] <= 0) {
-				asks.erase(o.price);
-			}
-		}
-
-		o.shares -= sharesExecuted;
-		if (o.shares <= 0) {
-			orderMap.erase(it);
-		}
-}
-
-inline void checkMsg(int messageLength, size_t expectedSize) {
-	if (messageLength - 1 < expectedSize) {
-		cerr << "Error: Message too short" << endl;
-
-    }
-}
-
+// Template function - must remain in header
 template <typename T>
 inline bool readMessageBody(
-	ifstream& file,
+	std::ifstream& file,
 	uint16_t messageLength,
     char messageType,
 	T& msg,
@@ -64,35 +34,22 @@ inline bool readMessageBody(
 		checkMsg(messageLength, payloadSize);
 
 		if (!file.read(reinterpret_cast<char*>(&msg) + 1, payloadSize)) {
-			cerr << "Partial read on " << label << '\n';
+			std::cerr << "Partial read on " << label << '\n';
 			return false;
 		}
 
-		const auto bytesToSkip = static_cast<streamoff>((messageLength - 1) - payloadSize);
+		const auto bytesToSkip = static_cast<std::streamoff>((messageLength - 1) - payloadSize);
 		if (bytesToSkip > 0) {
-			file.seekg(bytesToSkip, ios::cur);
+			file.seekg(bytesToSkip, std::ios::cur);
 		}
 		return true;
 }
 
 struct BlockTimer {
-    string name;
-    chrono::high_resolution_clock::time_point start_time;
+    std::string name;
+    std::chrono::high_resolution_clock::time_point start_time;
 
-    BlockTimer(const string& processName) : name(processName) {
-        start_time = chrono::high_resolution_clock::now();
-    }
-
-    void stop() {
-        auto end_time = chrono::high_resolution_clock::now();
-        auto duration = chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-        
-        cout << "[" << name << "] took: " 
-                  << duration.count() << " microseconds (" 
-                  << duration.count() / 1000.0 << " ms)" << endl;
-    }
-    
-    void reset() {
-        start_time = chrono::high_resolution_clock::now();
-    }
+    BlockTimer(const std::string& processName);
+    void stop();
+    void reset();
 };

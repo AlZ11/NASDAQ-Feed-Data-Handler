@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <iostream>
 
 // Update the order map and book levels after an execution.
 void executeOrder(std::unordered_map<uint64_t, Order>& orderMap,
@@ -8,6 +9,7 @@ void executeOrder(std::unordered_map<uint64_t, Order>& orderMap,
                   uint32_t sharesExecuted) {
     auto it = orderMap.find(refNum);
     if (it == orderMap.end()) {
+        std::cerr << "Order reference number not found" << std::endl;
         return;
     }
 
@@ -36,4 +38,29 @@ void executeOrder(std::unordered_map<uint64_t, Order>& orderMap,
     } else {
         order.shares -= sharesExecuted;
     }
+}
+
+// Check if message length is valid
+void checkMsg(int messageLength, size_t expectedSize) {
+    if (messageLength - 1 < static_cast<int>(expectedSize)) {
+        std::cerr << "Error: Message too short" << std::endl;
+    }
+}
+
+// BlockTimer implementation
+BlockTimer::BlockTimer(const std::string& processName) : name(processName) {
+    start_time = std::chrono::high_resolution_clock::now();
+}
+
+void BlockTimer::stop() {
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    
+    std::cout << "[" << name << "] took: " 
+              << duration.count() << " microseconds (" 
+              << duration.count() / 1000.0 << " ms)" << std::endl;
+}
+
+void BlockTimer::reset() {
+    start_time = std::chrono::high_resolution_clock::now();
 }
