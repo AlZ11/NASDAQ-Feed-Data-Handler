@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
     targetSymbol.resize(8, ' ');
     const char* target = targetSymbol.c_str();
 
-    const char* filename = "../build/itch50_data.bin";
+    const char* filename = "../data/itch50_data.bin";
 
     int fd = open(filename, O_RDONLY);
     if (fd == -1) {
