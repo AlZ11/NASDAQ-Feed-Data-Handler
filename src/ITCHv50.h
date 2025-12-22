@@ -1,3 +1,4 @@
+// Specifications according to NASDAQ TotalView-ITCH 5.0
 #include <cstdint>
 
 #ifndef MESSAGES
@@ -69,6 +70,11 @@ struct Order {
     uint32_t price;
     uint32_t shares;
     char side;
+};
+
+struct PriceLevel {
+    uint32_t price;
+    uint64_t shares;
 };
 
 #pragma pack(pop)

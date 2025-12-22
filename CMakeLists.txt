@@ -3,4 +3,4 @@ project(Reader)
 set(CMAKE_CXX_STANDARD 17)
 
 include_directories(src)
-add_executable(HexDump src/hex_dump.cpp)
+add_executable(main src/main.cpp src/utils.cpp)

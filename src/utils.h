@@ -7,18 +7,16 @@
 #include <string>
 #include <fstream>
 #include <iostream>
+#include <vector>
 
 #include "ITCHv50.h"
 
 // Forward declarations for function declarations
-void executeOrder(
-	std::unordered_map<uint64_t, Order>& orderMap, 
-	std::map<uint32_t, uint64_t, std::greater<uint32_t>>& bids, 
-	std::map<uint32_t, uint64_t>& asks,
-	uint64_t refNum,
-	uint32_t sharesExecuted);
-
 void checkMsg(int messageLength, size_t expectedSize);
+
+void updateBook(std::vector<PriceLevel>& book, uint32_t price, uint32_t shares, bool isBid);
+
+void reduceBook(std::vector<PriceLevel>& book, uint32_t price, uint32_t shares, bool isBid);
 
 template <typename T>
 inline bool readMessageBody(
