@@ -1,220 +1,83 @@
 #include <iostream>
-#include <fstream>
-#include <vector>
-#include <iomanip>
 #include <cstdint>
-#include <cstdlib>
-#include <stdlib.h>
-#include <map>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h> 
-#include <cstdio> 
+#include <chrono>
 
-#include "ITCHv50.h"
-#include "utils.h"
+#include "../include/ITCHv50.h"
+#include "../include/OrderBook.h"
+#include "../include/MessageHandler.h"
+#include "../include/MMapReader.h"
 
-
-using namespace std;
+// INITIALISE orderBook WITH false FOR MAX THROUGHPUT
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        cerr << "Usage: " << argv[0] << " <TICKER>" << endl;
+        std::cerr << "Usage: " << argv[0] << " <TICKER>" << std::endl;
         return 1;
     }
-    string targetSymbol = argv[1];
-    cout << "Listening for symbol: [" << targetSymbol << "]" << std::endl;
+    
+    std::string targetSymbol = argv[1];
+    std::cout << "Looking for [" << targetSymbol << "]" << std::endl;
     targetSymbol.resize(8, ' ');
     const char* target = targetSymbol.c_str();
 
-    const char* filename = "../data/itch50_data.bin";
-
-    int fd = open(filename, O_RDONLY);
-    if (fd == -1) {
-        cerr << "Error: Could not open file" << endl;
-    }
-    struct stat sb;
-    if (fstat(fd, &sb) == -1) {
-        cerr << "Error: Could not get file size" << endl;
-        close(fd);
+    // Open and memory map the file
+    MMapReader reader("../data/itch50_data.bin");
+    if (!reader.isOpen()) {
         return 1;
     }
 
-    size_t fileSize = sb.st_size;
+    // Initialize order book (set to false for max throughput)
+    OrderBook orderBook(true);
+    orderBook.reserve(10000000);
+    
+    // Initialize msg handler
+    MessageHandler handler(orderBook, target);
+    
+    size_t messageCount = 0;
+    char* cursor = reader.begin();
+    char* end = reader.end();
 
-    char* mappedData = static_cast<char*>(mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0));
-
-    if (mappedData == MAP_FAILED) {
-        cerr << "Error: mmap failed" << endl;
-        close(fd);
-        return 1;
-    }
-
-    vector<PriceLevel> asks; 
-    vector<PriceLevel> bids;
-    unordered_map<uint64_t, Order> orderMap;
-    int counter = 0;
-    char* cursor = mappedData;
-    char* end = mappedData + fileSize;
-
-    uint16_t messageLength;
-
-    // BlockTimer timer("Many System Calls (1 Byte Read)");
-    orderMap.reserve(10000000);
     auto start = std::chrono::high_resolution_clock::now();
 
+    // Process messages
     while (cursor < end) {
-        if (end - cursor < 2) break; 
+        // Enough bytes for msg length?
+        if (end - cursor < 2) break;
         
-        uint16_t messageLength = *reinterpret_cast<uint16_t*>(cursor);
-        messageLength = __builtin_bswap16(messageLength); 
+        // Endianess swap for msg length
+        uint16_t messageLength = __builtin_bswap16(*reinterpret_cast<uint16_t*>(cursor));
 
-        char* messageStart = cursor + 2; 
-
-        if (messageStart + messageLength > end) {
-            // cerr << "Error: Incomplete message at end of file" << endl;
-            break;
-        }
+        // Keep reading rest of the msg
+        char* messageStart = cursor + 2;
+        // Safety check
+        if (messageStart + messageLength > end) break;
         
         char messageType = *messageStart;
-        counter++;
-        switch (messageType) {
-            case 'S': { // System event message
-                SystemEventMessage* msg = reinterpret_cast<SystemEventMessage*>(messageStart);
+        messageCount++;
+        
+        // Process msg
+        handler.processMessage(messageStart, messageType);
 
-                // Endianness swap
-                uint16_t fixedLocate = __builtin_bswap16(msg->stockLocate);
-                uint16_t fixedTrack  = __builtin_bswap16(msg->trackingNumber);
-                break;
-            }
-            case 'A': { // Add order message
-                AddOrderMessage* msg = reinterpret_cast<AddOrderMessage*>(messageStart);
-                
-                if (strncmp(msg->stock, target, 8) == 0) {
-                    uint16_t fixedLocate = __builtin_bswap16(msg->stockLocate);
-                    uint16_t fixedTrack = __builtin_bswap16(msg->trackingNumber);
-                    uint64_t fixedRef    = __builtin_bswap64(msg->orderReferenceNumber);
-                    uint32_t fixedShares = __builtin_bswap32(msg->shares);
-                    uint32_t fixedPrice  = __builtin_bswap32(msg->price);
-
-                    // Convert Price (Integer) to double (Divide by 10000)
-                    double finalPrice = fixedPrice / 10000.0;
-
-                    // Clean print of Stock Symbol (8 chars, not null-terminated)
-                    string symbol(msg->stock, 8);
-
-                    Order o = {fixedPrice, fixedShares, msg->indicator};
-                    orderMap[fixedRef] = o;
-                    
-                }
-                break;
-            }
-            case 'X' : { // Order cancelled message
-                OrderCancelMessage* msg = reinterpret_cast<OrderCancelMessage*>(messageStart);
-
-                uint16_t fixedLocate = __builtin_bswap16(msg->stockLocate);
-                uint16_t fixedTrack = __builtin_bswap16(msg->trackingNumber);
-                uint64_t fixedRef    = __builtin_bswap64(msg->orderReferenceNumber);
-                uint32_t fixedShares = __builtin_bswap32(msg->cancelledShares);
-                
-                // Direct map lookup (No endian swap needed for checking existence)
-                auto it = orderMap.find(fixedRef);
-                if (it != orderMap.end()) {
-                    uint32_t shares = __builtin_bswap32(msg->cancelledShares);
-                    
-                    // Reduce Vector Book
-                    reduceBook(it->second.side == 'B' ? bids : asks, it->second.price, shares, it->second.side == 'B');
-
-                    it->second.shares -= shares;
-                    if (it->second.shares <= 0) orderMap.erase(it);
-                } else {
-                    // cerr << "Order reference number not found" << endl;
-                }
-                break;
-            }
-            case 'D' : { // Order delete message
-                OrderDeleteMessage* msg = reinterpret_cast<OrderDeleteMessage*>(messageStart);
-
-
-                uint16_t fixedLocate = __builtin_bswap16(msg->stockLocate);
-                uint16_t fixedTrack = __builtin_bswap16(msg->trackingNumber);
-                uint64_t fixedRef    = __builtin_bswap64(msg->orderReferenceNumber);
-
-                auto it = orderMap.find(fixedRef);
-                if (it != orderMap.end()) {
-                    // Reduce Vector Book by TOTAL remaining shares
-                    reduceBook(it->second.side == 'B' ? bids : asks, it->second.price, it->second.shares, it->second.side == 'B');
-                    orderMap.erase(it);
-                } else {
-                    // cerr << "Order reference number not found" << endl;
-                }
-                break;
-            }
-
-            case 'E' : { // Order executed message
-                OrderExecutedMessage* msg = reinterpret_cast<OrderExecutedMessage*>(messageStart);
-                uint16_t fixedLocate = __builtin_bswap16(msg->stockLocate);
-                uint16_t fixedTrack = __builtin_bswap16(msg->trackingNumber);
-                uint64_t fixedRef    = __builtin_bswap64(msg->orderReferenceNumber);
-                uint32_t fixedShares = __builtin_bswap32(msg->executedShares);
-                uint32_t fixedMatch  = __builtin_bswap32(msg->matchNumber);
-                
-                auto it = orderMap.find(fixedRef);
-                if (it != orderMap.end()) {
-                    uint32_t shares = __builtin_bswap32(msg->executedShares);
-                    reduceBook(it->second.side == 'B' ? bids : asks, it->second.price, shares, it->second.side == 'B');
-
-                    it->second.shares -= shares;
-                    if (it->second.shares <= 0) orderMap.erase(it);
-                }
-                break;
-            }
-
-            case 'C' : { // Order executed with price message
-                OrderExecutedWithPriceMessage* msg = reinterpret_cast<OrderExecutedWithPriceMessage*>(messageStart);
-
-                uint16_t fixedLocate = __builtin_bswap16(msg->stockLocate);
-                uint16_t fixedTrack = __builtin_bswap16(msg->trackingNumber);
-                uint64_t fixedRef    = __builtin_bswap64(msg->orderReferenceNumber);
-                uint32_t fixedShares = __builtin_bswap32(msg->executedShares);
-                uint64_t fixedMatch  = __builtin_bswap64(msg->matchNumber);
-                uint32_t fixedPrice  = __builtin_bswap32(msg->executionPrice);
-
-                auto it = orderMap.find(fixedRef);
-                if (it != orderMap.end()) {
-                    uint32_t shares = __builtin_bswap32(msg->executedShares);
-                    // IMPORTANT: We reduce the book at the ORIGINAL price (it->second.price),
-                    // NOT the execution price in the 'C' message.
-                    reduceBook(it->second.side == 'B' ? bids : asks, it->second.price, shares, it->second.side == 'B');
-
-                    it->second.shares -= shares;
-                    if (it->second.shares <= 0) orderMap.erase(it);
-                }
-                break;
-            }
-            default:
-                break;
-        }
+        // Next msg
         cursor += 2 + messageLength;
     }
     auto finish = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff = finish - start;
-    double seconds = diff.count();
-    
-    // 'counter' is your total messages processed
-    // Note: You need to increment 'counter' for EVERY message, not just 'A'
-    double msgsPerSec = counter / seconds;
+    std::chrono::duration<double> elapsed = finish - start;
 
-    std::cout << "------------------------------------------------" << std::endl;
-    std::cout << "Time: " << seconds << " seconds" << std::endl;
-    std::cout << "Total Messages: " << counter << std::endl;
-    std::cout << "Throughput: " << (long)msgsPerSec << " msgs/sec" << std::endl;
-    std::cout << "------------------------------------------------" << std::endl;
-    // timer.stop();
-    if (munmap(mappedData, fileSize) == -1) {
-        // cerr << "Error: munmap failed" << endl;
-    }
-    close(fd);
+    // Display results
+    std::cout << "\n================================================" << std::endl;
+    std::cout << "Processing Complete!" << std::endl;
+    std::cout << "================================================" << std::endl;
+    std::cout << "Time:            " << elapsed.count() << " seconds" << std::endl;
+    std::cout << "Messages:        " << static_cast<double>(messageCount) << std::endl;
+    std::cout << "Throughput:      " << static_cast<long>(messageCount / elapsed.count()) << " msgs/sec" << std::endl;
+    std::cout << "Active Orders:   " << orderBook.getOrderCount() << std::endl;
+    std::cout << "================================================\n" << std::endl;
+    
+    // Disable book snapshot for maximum throughput
+    // To enable, set OrderBook orderBook(true);
+    orderBook.printSnapshot(targetSymbol, 10);
+
+    // Cleanup happens automatically via RAII (MMapReader destructor)
     return 0;
 }
