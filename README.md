@@ -21,7 +21,8 @@ Benchmarks were run on a Apple M2 Pro processing a 11GB ITCH 5.0 binary file (~3
 | :--- | :--- | :--- |
 | **Baseline** | ~7.3M msgs/sec | `mmap` + `std::map` (Red Black Tree) + Debug Build |
 | **Optimized** | ~11.5M msgs/sec | `std::vector` (Flat Map) + `-O3` + `-march=native` + Binary Search  |
-<img width="362" height="167" alt="Screenshot 2025-12-23 at 7 21 55 pm" src="https://github.com/user-attachments/assets/76558085-af11-44f5-815e-60548044a63e" />
+<img width="362" height="167" alt="Screenshot 2025-12-23 at 7 21 55 pm" src="https://github.com/user-attachments/assets/76558085-af11-44f5-815e-60548044a63e" />  
+
 **Performance Gain:** +57% increase in throughput by optimizing for L1 Cache locality.
 
 
