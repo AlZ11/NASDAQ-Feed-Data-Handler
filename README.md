@@ -1,4 +1,4 @@
-# Nasdaq Feed Data Handler
+# Nasdaq Feed Handler
 
 ![Language](https://img.shields.io/badge/language-C%2B%2B17-blue)
 ![Architecture](https://img.shields.io/badge/architecture-Zero--Copy-green)
